@@ -6,9 +6,9 @@ RUN_SRC := run
 LLREF_SRC := llref
 COMMON_SRC := common
 
-RUN_SRCS := $(shell find $(RUN_SRC) -name '*.c')
-LLREF_SRCS := $(shell find $(LLREF_SRC) -name '*.c')
-COMMON_SRCS := $(shell find $(COMMON_SRC) -name '*.c')
+RUN_SRCS := $(shell find $(RUN_SRC) -name '*.cpp')
+LLREF_SRCS := $(shell find $(LLREF_SRC) -name '*.cpp')
+COMMON_SRCS := $(shell find $(COMMON_SRC) -name '*.cpp')
 
 RUN_OBJS := $(RUN_SRCS:%=$(BUILD_DIR)/%.o)
 LLREF_OBJS := $(LLREF_SRCS:%=$(BUILD_DIR)/%.o)
