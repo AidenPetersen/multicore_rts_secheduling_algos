@@ -18,8 +18,8 @@ RUN_INC_DIRS := $(shell find $(RUN_SRC) -type d)
 LLREF_INC_DIRS := $(shell find $(LLREF_SRC) -type d)
 COMMON_INC_DIRS := $(shell find $(COMMON_SRC) -type d)
 
-RUN_INC_FLAGS := $(addprefix -I,$(RUN_INC_DIRS,COMMON_INC_DIRS))
-LLREF_INC_FLAGS := $(addprefix -I,$(LLREF_INC_DIRS,COMMON_INC_DIRS))
+RUN_INC_FLAGS := -I$(RUN_INC_DIRS) -I$(COMMON_INC_DIRS)
+LLREF_INC_FLAGS := -I$(LLREF_INC_DIRS) -I$(COMMON_INC_DIRS)
 
 CXX=g++
 LIBS=
