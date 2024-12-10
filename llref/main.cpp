@@ -5,14 +5,21 @@
 #include "job.hpp"
 #define EPSILON 0.00000001
 
+enum event_type
+{
+    FLOOR,
+    CEILING,
+    NEW_TASK
+};
+
 // Calculate local remaining execution time
 bool lret_comp(Job j1, Job j2, double time)
 {
     double w1 = (j1.entry_time + j1.deadline) - time;
-    double b1 = w1 * j1.wcet / j1.deadline;
+    double b1 = w1 * j1.remaining_time / j1.deadline;
 
     double w2 = (j2.entry_time + j2.deadline) - time;
-    double b2 = w2 * j2.wcet / j2.deadline;
+    double b2 = w2 * j2.remaining_time / j2.deadline;
     return b1 >= b2;
 }
 
@@ -45,7 +52,7 @@ public:
         }
     }
 
-    double next_event()
+    double next_event(event_type *event)
     {
 
         double next_floor;
@@ -54,11 +61,12 @@ public:
         {
             // Get selected val that will end first
             double min = __DBL_MAX__;
-            for(int i = 0; i < (int)selected_jobs.size(); i++){
+            for (int i = 0; i < (int)selected_jobs.size(); i++)
+            {
                 double rem = selected_jobs[i].remaining_time + time_now;
                 min = rem < min ? rem : min;
             }
-            printf("Next floor: %f\n", min);
+            printf("[%0.2f] Next floor: %f\n", time_now, min);
             next_floor = min;
         }
         else
@@ -69,18 +77,29 @@ public:
         {
             // Get val that will hit slope first
             double min = __DBL_MAX__;
-            for(int i = 0; i < (int)not_selected_jobs.size(); i++){
-                double rem = time_now + not_selected_jobs[i].deadline- not_selected_jobs[i].remaining_time;
+            for (int i = 0; i < (int)not_selected_jobs.size(); i++)
+            {
+                double rem = time_now + not_selected_jobs[i].deadline - not_selected_jobs[i].remaining_time;
                 min = rem < min ? rem : min;
             }
-            printf("Next ceiling: %f\n", min);
+            printf("[%0.2f] Next ceiling: %f\n", time_now, min);
             next_ceiling = min;
         }
         else
         {
             next_ceiling = __DBL_MAX__;
         }
-        double next_collision = next_floor > next_ceiling ? next_ceiling : next_floor;
+        double next_collision;
+        if (next_floor > next_ceiling)
+        {
+            next_collision = next_ceiling;
+            *event = CEILING;
+        }
+        else
+        {
+            next_collision = next_floor;
+            *event = FLOOR;
+        }
         // Find next instruction to be issued
         for (int i = 0; i < (int)inactive_jobs.size(); i++)
         {
@@ -88,6 +107,7 @@ public:
             if (entry_time < next_collision)
             {
                 next_collision = entry_time;
+                *event = NEW_TASK;
             }
         }
         printf("\n");
@@ -97,8 +117,28 @@ public:
     void schedule(bool first)
     {
         // Next update time
-        double next_time = first ? 0.0 : next_event() ;
-        printf("[%0.2lf] NEW EVENT\n", next_time);
+        // floor as default to stop warnings
+        event_type event = FLOOR;
+        double next_time = first ? 0.0 : next_event(&event);
+        std::string event_s = "";
+        switch (event)
+        {
+        case CEILING:
+            event_s = "ceiling";
+            break;
+
+        case FLOOR:
+            event_s = "floor";
+            break;
+
+        case NEW_TASK:
+            event_s = "new task";
+            break;
+
+        default:
+            break;
+        }
+        printf("[%0.2lf] NEW EVENT %s\n", next_time, event_s.c_str());
 
         // move new jobs into inactive
         for (int i = 0; i < (int)inactive_jobs.size(); i++)
@@ -119,9 +159,18 @@ public:
             aj->remaining_time -= (next_time - time_now);
             if (aj->remaining_time <= EPSILON)
             {
-                printf("[%0.2lf] Job ID: %d has been completed\n", next_time, aj->id);
+                if ((aj->entry_time + aj->deadline) < next_time - EPSILON)
+                {
+                    printf("[%0.2lf] Job ID: %d has been completed LATE\n", next_time, aj->id);
+                }
+                else
+                {
+                    printf("[%0.2lf] Job ID: %d has been completed\n", next_time, aj->id);
+                }
                 aj = selected_jobs.erase(aj);
-            } else{
+            }
+            else
+            {
                 aj++;
             }
         }
@@ -129,7 +178,8 @@ public:
         // Update time for sort
         // double old_time = time_now;
         time_now = next_time;
-        auto lret = [next_time](Job j1, Job j2) -> bool{
+        auto lret = [next_time](Job j1, Job j2) -> bool
+        {
             return lret_comp(j1, j2, next_time);
         };
 
@@ -139,14 +189,15 @@ public:
         sort(sorted_active.begin(), sorted_active.end(), lret);
 
         auto sab = sorted_active.begin() + processors;
-        if(sab > sorted_active.end()){
+        if (sab > sorted_active.end())
+        {
             sab = sorted_active.end();
         }
 
         selected_jobs.assign(sorted_active.begin(), sab);
         not_selected_jobs.assign(sab, sorted_active.end());
 
-        printf("[%0.2lf] Jobs IDs: ", time_now);
+        printf("[%0.2lf] Job IDs: ", time_now);
         for (auto j : selected_jobs)
         {
             printf("%d ", j.id);
@@ -189,16 +240,22 @@ std::vector<Job> parse_jobs()
     return jobs;
 }
 
-void print_jobs(std::vector<Job> jobs){
-    for(auto j: jobs){
+void print_jobs(std::vector<Job> jobs)
+{
+    printf("ALL JOBS\n");
+    for (auto j : jobs)
+    {
         printf("Job ID: %d, start: %0.2lf, dline: %0.2lf, wcet: %0.2lf\n", j.id, j.entry_time, j.deadline, j.wcet);
     }
+    printf("\n");
 }
 
 int main()
 {
+    int cores;
+    std::cin >> cores;
     std::vector<Job> jobs = parse_jobs();
     print_jobs(jobs);
-    LLREF scheduler(jobs, 2);
+    LLREF scheduler(jobs, cores);
     scheduler.run();
 }
