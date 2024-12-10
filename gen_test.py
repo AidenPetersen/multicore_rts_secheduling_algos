@@ -1,5 +1,5 @@
 import random
-cores = random.randint(1, 100)
+cores = random.randint(1, 32)
 coresum = 0
 utilization = 0
 tasks = []

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <string>
 #include <unordered_map>
 #include <algorithm>
 #include "job.hpp"
@@ -15,12 +16,6 @@ enum event_type
 // Calculate local remaining execution time
 bool lret_comp(Job j1, Job j2, double time)
 {
-    // double w1 = (j1.entry_time + j1.deadline) - time;
-    // double b1 = w1 * j1.remaining_time / j1.deadline;
-
-    // double w2 = (j2.entry_time + j2.deadline) - time;
-    // double b2 = w2 * j2.remaining_time / j2.deadline;
-    // return b1 > b2;
     double v1 = -j1.remaining_time / (j1.entry_time + j1.deadline - time);
 
     double v2 = -j2.remaining_time / (j2.entry_time + j2.deadline - time);
@@ -30,25 +25,30 @@ bool lret_comp(Job j1, Job j2, double time)
 class LLREF
 {
 private:
-    std::vector<Job> not_selected_jobs;
-    std::vector<Job> selected_jobs;
-    std::vector<Job> inactive_jobs;
+    std::vector<Job>* sorted_active_jobs;
+    std::vector<Job>* inactive_jobs;
     int processors;
     double time_now;
 
 public:
     LLREF(std::vector<Job> jobs, int np)
     {
+
+        sorted_active_jobs = new std::vector<Job>();
+        inactive_jobs = new std::vector<Job>(jobs);
         processors = np;
         time_now = 0;
-        inactive_jobs = jobs;
+    }
+    ~LLREF(){
+        delete(sorted_active_jobs);
+        delete(inactive_jobs);
     }
 
     void run()
     {
 
         schedule(true);
-        while (!(inactive_jobs.empty() && selected_jobs.empty() && not_selected_jobs.empty()))
+        while (!(inactive_jobs->empty() && sorted_active_jobs->empty()))
         {
             schedule(false);
         }
@@ -59,13 +59,13 @@ public:
 
         double next_floor;
         double next_ceiling;
-        if (!selected_jobs.empty())
+        if (!sorted_active_jobs->empty())
         {
             // Get selected val that will end first
             double min = __DBL_MAX__;
-            for (int i = 0; i < (int)selected_jobs.size(); i++)
+            for (int i = 0; i < (int)sorted_active_jobs->size() && i < (int)processors; i++)
             {
-                double rem = selected_jobs[i].remaining_time + time_now;
+                double rem = sorted_active_jobs->at(i).remaining_time + time_now;
                 min = rem < min ? rem : min;
             }
             printf("[%0.2f] Next floor: %f\n", time_now, min);
@@ -75,18 +75,18 @@ public:
         {
             next_floor = __DBL_MAX__;
         }
-        if (!not_selected_jobs.empty())
+        if ((int)sorted_active_jobs->size() > processors)
         {
             // Get val that will hit slope first
             double min = __DBL_MAX__;
             int min_id = -1;
-            for (int i = 0; i < (int)not_selected_jobs.size(); i++)
+            for (int i = processors; i < (int)sorted_active_jobs->size(); i++)
             {
-                double rem = not_selected_jobs[i].entry_time + not_selected_jobs[i].deadline - not_selected_jobs[i].remaining_time;
+                double rem = sorted_active_jobs->at(i).entry_time + sorted_active_jobs->at(i).deadline - sorted_active_jobs->at(i).remaining_time;
                 if (rem < min)
                 {
                     min = rem;
-                    min_id = not_selected_jobs[i].id;
+                    min_id = sorted_active_jobs->at(i).id;
                 }
             }
             printf("[%0.2f] Next ceiling: %f on ID: %d\n", time_now, min, min_id);
@@ -108,9 +108,9 @@ public:
             *event = FLOOR;
         }
         // Find next instruction to be issued
-        for (int i = 0; i < (int)inactive_jobs.size(); i++)
+        for (int i = 0; i < (int)inactive_jobs->size(); i++)
         {
-            double entry_time = inactive_jobs[i].entry_time;
+            double entry_time = inactive_jobs->at(i).entry_time;
             if (entry_time < next_collision)
             {
                 next_collision = entry_time;
@@ -148,20 +148,21 @@ public:
         printf("[%0.2lf] NEW EVENT %s\n", next_time, event_s.c_str());
 
         // move new jobs into inactive
-        for (int i = 0; i < (int)inactive_jobs.size(); i++)
+        for (int i = 0; i < (int)inactive_jobs->size(); i++)
         {
-            if (inactive_jobs[i].entry_time <= next_time + EPSILON)
+            if (inactive_jobs->at(i).entry_time <= next_time + EPSILON)
             {
-                printf("[%0.2lf] Job ID: %d has been activated\n", next_time, inactive_jobs[i].id);
-                not_selected_jobs.push_back(inactive_jobs[i]);
-                inactive_jobs.erase(inactive_jobs.begin() + i);
+                printf("[%0.2lf] Job ID: %d has been activated\n", next_time, inactive_jobs->at(i).id);
+                sorted_active_jobs->push_back(inactive_jobs->at(i));
+                inactive_jobs->erase(inactive_jobs->begin() + i);
                 i--;
             }
         }
         // update remaining time on active jobs
         // remove them if complete
-        auto aj = selected_jobs.begin();
-        while (aj != selected_jobs.end())
+        auto aj = sorted_active_jobs->begin();
+        int aj_counter = processors;
+        while (aj < (sorted_active_jobs->begin() + aj_counter) && aj  < sorted_active_jobs->end())
         {
             aj->remaining_time -= (next_time - time_now);
             if (aj->remaining_time <= EPSILON)
@@ -174,7 +175,8 @@ public:
                 {
                     printf("[%0.2lf] Job ID: %d has been completed\n", next_time, aj->id);
                 }
-                aj = selected_jobs.erase(aj);
+                aj = sorted_active_jobs->erase(aj);
+                aj_counter--;
             }
             else
             {
@@ -189,35 +191,25 @@ public:
             return lret_comp(j1, j2, next_time);
         };
 
-        std::vector<Job> sorted_active;
-        sorted_active.insert(sorted_active.end(), selected_jobs.begin(), selected_jobs.end());
-        sorted_active.insert(sorted_active.end(), not_selected_jobs.begin(), not_selected_jobs.end());
-
-        sort(sorted_active.begin(), sorted_active.end(), lret);
+        sort(sorted_active_jobs->begin(), sorted_active_jobs->end(), lret);
 
         printf("[%0.2lf] SORTED: ", time_now);
-        for (auto j : sorted_active)
+        for (auto j : *sorted_active_jobs)
         {
             printf("%d ", j.id);
         }
         printf("\n");
 
-        auto sab = sorted_active.begin() + processors;
-        if (sab > sorted_active.end())
+        auto sab = sorted_active_jobs->begin() + processors;
+        if (sab > sorted_active_jobs->end())
         {
-            sab = sorted_active.end();
-        }
-
-        if (sorted_active.size() > 0)
-        {
-            selected_jobs = std::vector<Job>(sorted_active.begin(), sab);
-            not_selected_jobs = std::vector<Job>(sab, sorted_active.end());
+            sab = sorted_active_jobs->end();
         }
 
         printf("[%0.2lf] Job IDs: ", time_now);
-        for (auto j : selected_jobs)
+        for (int i = 0; i < processors && i < (int)sorted_active_jobs->size(); i++)
         {
-            printf("%d ", j.id);
+            printf("%d ", sorted_active_jobs->at(i).id);
         }
         printf("have been scheduled\n");
     }
