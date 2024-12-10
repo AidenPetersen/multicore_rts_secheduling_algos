@@ -15,12 +15,16 @@ enum event_type
 // Calculate local remaining execution time
 bool lret_comp(Job j1, Job j2, double time)
 {
-    double w1 = (j1.entry_time + j1.deadline) - time;
-    double b1 = w1 * j1.remaining_time / j1.deadline;
+    // double w1 = (j1.entry_time + j1.deadline) - time;
+    // double b1 = w1 * j1.remaining_time / j1.deadline;
 
-    double w2 = (j2.entry_time + j2.deadline) - time;
-    double b2 = w2 * j2.remaining_time / j2.deadline;
-    return b1 >= b2;
+    // double w2 = (j2.entry_time + j2.deadline) - time;
+    // double b2 = w2 * j2.remaining_time / j2.deadline;
+    // return b1 > b2;
+    double v1 = -j1.remaining_time / (j1.entry_time + j1.deadline - time);
+
+    double v2 = -j2.remaining_time / (j2.entry_time + j2.deadline - time);
+    return v1 <= v2;
 }
 
 class LLREF
@@ -29,9 +33,7 @@ private:
     std::vector<Job> not_selected_jobs;
     std::vector<Job> selected_jobs;
     std::vector<Job> inactive_jobs;
-    std::unordered_map<Job *, double> budget;
     int processors;
-    double last_update;
     double time_now;
 
 public:
@@ -77,12 +79,17 @@ public:
         {
             // Get val that will hit slope first
             double min = __DBL_MAX__;
+            int min_id = -1;
             for (int i = 0; i < (int)not_selected_jobs.size(); i++)
             {
-                double rem = time_now + not_selected_jobs[i].deadline - not_selected_jobs[i].remaining_time;
-                min = rem < min ? rem : min;
+                double rem = not_selected_jobs[i].entry_time + not_selected_jobs[i].deadline - not_selected_jobs[i].remaining_time;
+                if (rem < min)
+                {
+                    min = rem;
+                    min_id = not_selected_jobs[i].id;
+                }
             }
-            printf("[%0.2f] Next ceiling: %f\n", time_now, min);
+            printf("[%0.2f] Next ceiling: %f on ID: %d\n", time_now, min, min_id);
             next_ceiling = min;
         }
         else
@@ -90,7 +97,7 @@ public:
             next_ceiling = __DBL_MAX__;
         }
         double next_collision;
-        if (next_floor > next_ceiling)
+        if (next_floor > next_ceiling && next_ceiling != time_now)
         {
             next_collision = next_ceiling;
             *event = CEILING;
@@ -174,7 +181,6 @@ public:
                 aj++;
             }
         }
-
         // Update time for sort
         // double old_time = time_now;
         time_now = next_time;
@@ -186,7 +192,15 @@ public:
         std::vector<Job> sorted_active;
         sorted_active.insert(sorted_active.end(), selected_jobs.begin(), selected_jobs.end());
         sorted_active.insert(sorted_active.end(), not_selected_jobs.begin(), not_selected_jobs.end());
+
         sort(sorted_active.begin(), sorted_active.end(), lret);
+
+        printf("[%0.2lf] SORTED: ", time_now);
+        for (auto j : sorted_active)
+        {
+            printf("%d ", j.id);
+        }
+        printf("\n");
 
         auto sab = sorted_active.begin() + processors;
         if (sab > sorted_active.end())
@@ -194,8 +208,11 @@ public:
             sab = sorted_active.end();
         }
 
-        selected_jobs.assign(sorted_active.begin(), sab);
-        not_selected_jobs.assign(sab, sorted_active.end());
+        if (sorted_active.size() > 0)
+        {
+            selected_jobs = std::vector<Job>(sorted_active.begin(), sab);
+            not_selected_jobs = std::vector<Job>(sab, sorted_active.end());
+        }
 
         printf("[%0.2lf] Job IDs: ", time_now);
         for (auto j : selected_jobs)
@@ -207,7 +224,7 @@ public:
 };
 
 // FORMAT
-// NUM_PERIODIC NUM_APERIODIC RUNTIME
+// NUM_CORES NUM_PERIODIC NUM_APERIODIC RUNTIME
 // PERIODIC_TASKS : C P D ID
 // APERIODIC_TASKS: C D ENTRY_TIME ID
 std::vector<Job> parse_jobs()
