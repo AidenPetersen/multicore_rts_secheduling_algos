@@ -15,23 +15,25 @@ enum event_type
 
 int preemptions = 0;
 int migrations = 0;
+bool schedulable = 1;
 double runtime = 0;
+double t = 0;
 
 // Calculate local remaining execution time
-bool lret_comp(Job j1, Job j2, double time)
+bool lret_comp(Job j1, Job j2)
 {
-    double v1 = -j1.remaining_time / (j1.entry_time + j1.deadline - time);
+    double v1 = -j1.remaining_time / (j1.entry_time + j1.deadline - t);
 
-    double v2 = -j2.remaining_time / (j2.entry_time + j2.deadline - time);
+    double v2 = -j2.remaining_time / (j2.entry_time + j2.deadline - t);
     return v1 <= v2;
 }
 
 class LLREF
 {
 private:
-    std::vector<Job>* sorted_active_jobs;
-    std::vector<Job>* inactive_jobs;
-    std::map<int, int>* core_mapping; 
+    std::vector<Job> *sorted_active_jobs;
+    std::vector<Job> *inactive_jobs;
+    std::map<int, int> *core_mapping;
     int processors;
     double time_now;
 
@@ -70,7 +72,7 @@ public:
                 double rem = sorted_active_jobs->at(i).remaining_time + time_now;
                 min = rem < min ? rem : min;
             }
-            printf("[%0.2f] Next floor: %f\n", time_now, min);
+            //printf("[%0.2f] Next floor: %f\n", time_now, min);
             next_floor = min;
         }
         else
@@ -91,7 +93,7 @@ public:
                     min_id = sorted_active_jobs->at(i).id;
                 }
             }
-            printf("[%0.2f] Next ceiling: %f on ID: %d\n", time_now, min, min_id);
+            //printf("[%0.2f] Next ceiling: %f on ID: %d\n", time_now, min, min_id);
             next_ceiling = min;
         }
         else
@@ -119,7 +121,7 @@ public:
                 *event = NEW_TASK;
             }
         }
-        printf("\n");
+        //printf("\n");
         return next_collision;
     }
 
@@ -129,8 +131,9 @@ public:
         // floor as default to stop warnings
         event_type event = FLOOR;
         double next_time = first ? 0.0 : next_event(&event);
-        if(next_time > runtime){
-            printf("DONE\n");
+        if (next_time > runtime)
+        {
+            //printf("DONE\n");
             return true;
         }
         std::string event_s = "";
@@ -152,14 +155,14 @@ public:
         default:
             break;
         }
-        printf("[%0.2lf] NEW EVENT %s\n", next_time, event_s.c_str());
+        //printf("[%0.2lf] NEW EVENT %s\n", next_time, event_s.c_str());
 
         // move new jobs into inactive
         for (int i = 0; i < (int)inactive_jobs->size(); i++)
         {
             if (inactive_jobs->at(i).entry_time <= next_time + EPSILON)
             {
-                printf("[%0.2lf] Job ID: %d has been activated\n", next_time, inactive_jobs->at(i).id);
+                //printf("[%0.2lf] Job ID: %d has been activated\n", next_time, inactive_jobs->at(i).id);
                 sorted_active_jobs->push_back(inactive_jobs->at(i));
                 inactive_jobs->erase(inactive_jobs->begin() + i);
                 i--;
@@ -169,18 +172,19 @@ public:
         // remove them if complete
         auto aj = sorted_active_jobs->begin();
         int aj_counter = processors;
-        while (aj < (sorted_active_jobs->begin() + aj_counter) && aj  < sorted_active_jobs->end())
+        while (aj < (sorted_active_jobs->begin() + aj_counter) && aj < sorted_active_jobs->end())
         {
             aj->remaining_time -= (next_time - time_now);
             if (aj->remaining_time <= EPSILON)
             {
                 if ((aj->entry_time + aj->deadline) < next_time - EPSILON)
                 {
-                    printf("[%0.2lf] Job ID: %d has been completed LATE\n", next_time, aj->id);
+                    //printf("[%0.2lf] Job ID: %d has been completed LATE\n", next_time, aj->id);
+                    schedulable = 0;
                 }
                 else
                 {
-                    printf("[%0.2lf] Job ID: %d has been completed\n", next_time, aj->id);
+                    //printf("[%0.2lf] Job ID: %d has been completed\n", next_time, aj->id);
                 }
                 aj = sorted_active_jobs->erase(aj);
                 aj_counter--;
@@ -193,12 +197,13 @@ public:
         // Update time for sort
         // double old_time = time_now;
         time_now = next_time;
-        auto lret = [next_time](Job j1, Job j2) -> bool
-        {
-            return lret_comp(j1, j2, next_time);
-        };
+        t = next_time;
+        // auto lret = [next_time](Job j1, Job j2) -> bool
+        //{
+        //     return lret_comp(j1, j2, next_time);
+        // };
 
-        sort(sorted_active_jobs->begin(), sorted_active_jobs->end(), lret);
+        sort(sorted_active_jobs->begin(), sorted_active_jobs->end(), lret_comp);
 
         // printf("[%0.2lf] SORTED: ", time_now);
         // for (auto j : *sorted_active_jobs)
@@ -213,17 +218,28 @@ public:
             sab = sorted_active_jobs->end();
         }
 
-        printf("[%0.2lf] Job IDs: ", time_now);
+        //printf("[%0.2lf] Job IDs: ", time_now);
         for (int i = 0; i < processors && i < (int)sorted_active_jobs->size(); i++)
         {
             int id = sorted_active_jobs->at(i).id;
-            printf("%d ", id);
-            if(!core_mapping->count(id) && (*core_mapping)[i] != i) {
-                migrations++;
+            //printf("%d ", id);
+            if (!core_mapping->count(id) && (*core_mapping)[i] != i)
+            {
             }
-            core_mapping->emplace(id, i);
+            if (core_mapping->find(id) == core_mapping->end())
+            {
+                core_mapping->emplace(id, i);
+            }
+            else
+            {
+                if ((*core_mapping)[id] != i)
+                {
+                    (*core_mapping)[id] = i;
+                    migrations++;
+                }
+            }
         }
-        printf("have been scheduled\n");
+        //printf("have been scheduled\n");
         return false;
     }
 };
@@ -263,12 +279,12 @@ std::vector<Job> parse_jobs()
 
 void print_jobs(std::vector<Job> jobs)
 {
-    printf("ALL JOBS\n");
+    //printf("ALL JOBS\n");
     for (auto j : jobs)
     {
-        printf("Job ID: %d, start: %0.2lf, dline: %0.2lf, wcet: %0.2lf\n", j.id, j.entry_time, j.deadline, j.wcet);
+        //printf("Job ID: %d, start: %0.2lf, dline: %0.2lf, wcet: %0.2lf\n", j.id, j.entry_time, j.deadline, j.wcet);
     }
-    printf("\n");
+    //printf("\n");
 }
 
 int main()
@@ -276,8 +292,8 @@ int main()
     int cores;
     std::cin >> cores;
     std::vector<Job> jobs = parse_jobs();
-    print_jobs(jobs);
-    LLREF scheduler(jobs, cores);
-    scheduler.run();
-    printf("MIGRATIONS: %d\nPREEMPTIONS: %d\n", migrations, preemptions);
+    //print_jobs(jobs);
+    LLREF *scheduler = new LLREF(jobs, cores);
+    scheduler->run();
+    printf("MIGRATIONS: %d\nPREEMPTIONS: %d\nSCHEDULABLE: %d\n", migrations, preemptions, schedulable);
 }
