@@ -517,7 +517,7 @@ int main() {
     std::vector<Job> jobs = parse_jobs();
     RUNScheduler run(num_cpus, jobs);
     run.run(max_runtime);
-    printf("MIGRATIONS: %d\nPREEMPTIONS: %d\nSCHEDULABLE: %d\n", migrations, preemptions, !fatal);
+    printf("%d,%d,%d\n", migrations, preemptions, !fatal);
 
 
 
