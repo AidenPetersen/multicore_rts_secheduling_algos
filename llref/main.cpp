@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <unordered_map>
+#include <map>
 #include <algorithm>
 #include "job.hpp"
 #define EPSILON 0.00000001
@@ -12,6 +12,10 @@ enum event_type
     CEILING,
     NEW_TASK
 };
+
+int preemptions = 0;
+int migrations = 0;
+double runtime = 0;
 
 // Calculate local remaining execution time
 bool lret_comp(Job j1, Job j2, double time)
@@ -27,13 +31,13 @@ class LLREF
 private:
     std::vector<Job>* sorted_active_jobs;
     std::vector<Job>* inactive_jobs;
+    std::map<int, int> core_mapping; 
     int processors;
     double time_now;
 
 public:
     LLREF(std::vector<Job> jobs, int np)
     {
-
         sorted_active_jobs = new std::vector<Job>();
         inactive_jobs = new std::vector<Job>(jobs);
         processors = np;
@@ -47,10 +51,11 @@ public:
     void run()
     {
 
-        schedule(true);
-        while (!(inactive_jobs->empty() && sorted_active_jobs->empty()))
+        int done = false;
+        done = schedule(true);
+        while (!(inactive_jobs->empty() && sorted_active_jobs->empty()) && !done)
         {
-            schedule(false);
+            done = schedule(false);
         }
     }
 
@@ -121,17 +126,22 @@ public:
         return next_collision;
     }
 
-    void schedule(bool first)
+    bool schedule(bool first)
     {
         // Next update time
         // floor as default to stop warnings
         event_type event = FLOOR;
         double next_time = first ? 0.0 : next_event(&event);
+        if(next_time > runtime){
+            printf("DONE\n");
+            return true;
+        }
         std::string event_s = "";
         switch (event)
         {
         case CEILING:
             event_s = "ceiling";
+            preemptions++;
             break;
 
         case FLOOR:
@@ -193,12 +203,12 @@ public:
 
         sort(sorted_active_jobs->begin(), sorted_active_jobs->end(), lret);
 
-        printf("[%0.2lf] SORTED: ", time_now);
-        for (auto j : *sorted_active_jobs)
-        {
-            printf("%d ", j.id);
-        }
-        printf("\n");
+        // printf("[%0.2lf] SORTED: ", time_now);
+        // for (auto j : *sorted_active_jobs)
+        // {
+        //     printf("%d ", j.id);
+        // }
+        // printf("\n");
 
         auto sab = sorted_active_jobs->begin() + processors;
         if (sab > sorted_active_jobs->end())
@@ -209,9 +219,15 @@ public:
         printf("[%0.2lf] Job IDs: ", time_now);
         for (int i = 0; i < processors && i < (int)sorted_active_jobs->size(); i++)
         {
-            printf("%d ", sorted_active_jobs->at(i).id);
+            int id = sorted_active_jobs->at(i).id;
+            printf("%d ", id);
+            if(!core_mapping.count(id) && core_mapping[i] != i) {
+                migrations++;
+            }
+            core_mapping.emplace(id, i);
         }
         printf("have been scheduled\n");
+        return false;
     }
 };
 
@@ -222,7 +238,6 @@ public:
 std::vector<Job> parse_jobs()
 {
     int np, na;
-    double runtime;
     std::cin >> np >> na >> runtime;
 
     // vector is not sorted meaningfully
@@ -267,4 +282,5 @@ int main()
     print_jobs(jobs);
     LLREF scheduler(jobs, cores);
     scheduler.run();
+    printf("MIGRATIONS: %d\nPREEMPTIONS: %d\n", migrations, preemptions);
 }
