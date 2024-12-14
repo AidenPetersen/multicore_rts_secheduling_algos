@@ -15,6 +15,7 @@ int migrations = 0;
 int preemptions = 0;
 bool fatal = false;
 int id_ctr = -1;
+int glbl =0;
 
 #define DBG 0
 
@@ -32,7 +33,7 @@ bool eq(double a, double b){
 class Server{
 public:
     std::vector<Server*> children;
-    Server* parent;
+    Server* parent = nullptr;
     int dual = 0;
     int is_task = 0;
     int task_id = -1;
@@ -93,6 +94,7 @@ public:
     }*/
 
     void renew_budget(double curr_time){
+        glbl++;
         budget = (int)(util*(get_next_deadline() - curr_time));
     }
     void renew_parents(double curr_time){
