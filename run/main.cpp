@@ -16,6 +16,8 @@ int preemptions = 0;
 bool fatal = false;
 int id_ctr = -1;
 
+#define DBG 0
+
 double max_runtime;
 
 bool eq(double a, double b){
@@ -69,9 +71,13 @@ public:
 
         if(progress==c){
             int iter = (int)(curr_time/p);
-            printf("Finished task id %d iter %d at %0.2f\n", task_id, iter, curr_time+1);
+            if(DBG){
+                printf("Finished task id %d iter %d at %0.2f\n", task_id, iter, curr_time+1);
+            }
             if(iter - last_iter != 1){
-                printf("Task %d seems to have skipped iteration\n", task_id);
+                if(DBG){
+                    printf("Task %d seems to have skipped iteration\n", task_id);
+                }
                 fatal=true;
             }
             last_iter = iter;
@@ -146,12 +152,14 @@ public:
 };
 
 void print_vec(std::vector<Server*> x, double curr_time){
-    printf("-------Jobs at %0.1f--------------\n", curr_time);
-    /*for(auto j : x){
-        //printf("ID: %d, CPU: %d\n", j->task_id);
-    }*/
-    for(int i = 0; i < cpus.size(); i++){
-        printf("CPU %d: Task %d\n", i, cpus[i]);
+    if(DBG) {
+        printf("-------Jobs at %0.1f--------------\n", curr_time);
+        /*for(auto j : x){
+            //printf("ID: %d, CPU: %d\n", j->task_id);
+        }*/
+        for (int i = 0; i < cpus.size(); i++) {
+            printf("CPU %d: Task %d\n", i, cpus[i]);
+        }
     }
 }
 
@@ -167,7 +175,9 @@ public:
 
     ProperSubsystem(Server* root){
         rootserver=root;
-        printf("Made a subsystem\n");
+        if(DBG){
+            printf("Made a subsystem\n");
+        }
     };
 
     void update(double current_time){
@@ -299,8 +309,10 @@ public:
                     if(cpus[x->last_cpu] != -1){
                         auto it = std::find(cpus.begin(), cpus.end(), -1);
                         if(it == cpus.end()){
-                            printf("Error: All cpus full at time %0.2f\n", curr_t);
-                            return;
+                            if(DBG){
+                                printf("Error: All cpus full at time %0.2f\n", curr_t);
+                            }
+                            fatal= true;
                         }
                         int idx = std::distance(std::begin(cpus), it);
                         x->last_cpu = idx;
@@ -312,8 +324,10 @@ public:
                 }  else {
                     auto it = std::find(cpus.begin(), cpus.end(), -1);
                     if(it == cpus.end()){
-                        printf("Error: All cpus full at time %0.2f\n", curr_t);
-                        return;
+                        if(DBG){
+                            printf("Error: All cpus full at time %0.2f\n", curr_t);
+                        }
+                        fatal= true;
                     }
                     int idx = std::distance(std::begin(cpus), it);
                     x->last_cpu = idx;
@@ -501,9 +515,7 @@ int main() {
     std::vector<Job> jobs = parse_jobs();
     RUNScheduler run(num_cpus, jobs);
     run.run(max_runtime);
-    printf("DONE!----------------\n");
-    printf("Total Preemptions: %d\n", preemptions);
-    printf("Total Migrations: %d\n", migrations);
+    printf("MIGRATIONS: %d\nPREEMPTIONS: %d\nSCHEDULABLE: %d\n", migrations, preemptions, !fatal);
 
 
 
