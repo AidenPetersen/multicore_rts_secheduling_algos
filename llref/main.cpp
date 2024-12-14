@@ -31,21 +31,18 @@ class LLREF
 private:
     std::vector<Job>* sorted_active_jobs;
     std::vector<Job>* inactive_jobs;
-    std::map<int, int> core_mapping; 
+    std::map<int, int>* core_mapping; 
     int processors;
     double time_now;
 
 public:
     LLREF(std::vector<Job> jobs, int np)
     {
+        core_mapping = new std::map<int, int>();
         sorted_active_jobs = new std::vector<Job>();
         inactive_jobs = new std::vector<Job>(jobs);
         processors = np;
         time_now = 0;
-    }
-    ~LLREF(){
-        delete(sorted_active_jobs);
-        delete(inactive_jobs);
     }
 
     void run()
@@ -221,10 +218,10 @@ public:
         {
             int id = sorted_active_jobs->at(i).id;
             printf("%d ", id);
-            if(!core_mapping.count(id) && core_mapping[i] != i) {
+            if(!core_mapping->count(id) && (*core_mapping)[i] != i) {
                 migrations++;
             }
-            core_mapping.emplace(id, i);
+            core_mapping->emplace(id, i);
         }
         printf("have been scheduled\n");
         return false;
