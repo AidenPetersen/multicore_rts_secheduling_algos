@@ -10,8 +10,13 @@ class Server;
 
 std::priority_queue<double, std::vector<double>, std::greater<>> trigger_times;
 std::vector<Server*> sel_jobs(Server* s, std::vector<Server*>& v, int exec, double curr_time);
-std::vector<Job> cpus;
+std::vector<int> cpus;
+int migrations = 0;
+int preemptions = 0;
+bool fatal = false;
 int id_ctr = -1;
+
+double max_runtime;
 
 bool eq(double a, double b){
     if(fabs(a-b) < 0.000001){
@@ -33,8 +38,11 @@ public:
     double budget;
     double next_deadline;
     double util;
+    int last_cpu = -1;
     double progress=0;
     int last_iter = -1;
+    int last_active_state = 1;
+    double last_exec_time = -1;
 
     double c,p,d;
 
@@ -57,15 +65,18 @@ public:
 
     void make_progress(double curr_time){
         progress+=1;
+        last_exec_time = curr_time;
 
         if(progress==c){
             int iter = (int)(curr_time/p);
-            printf("Finished task id %d iter %d at %0.2f\n", task_id, iter, curr_time);
+            printf("Finished task id %d iter %d at %0.2f\n", task_id, iter, curr_time+1);
             if(iter - last_iter != 1){
                 printf("Task %d seems to have skipped iteration\n", task_id);
+                fatal=true;
             }
             last_iter = iter;
             progress=0;
+            last_active_state=0;
         }
 
     }
@@ -76,14 +87,25 @@ public:
     }*/
 
     void renew_budget(double curr_time){
-        int iter = (int)(curr_time/p);
-        budget = util*((p+1)*iter - curr_time);
+        budget = (int)(util*(get_next_deadline() - curr_time));
+    }
+    void renew_parents(double curr_time){
+        Server* par = parent;
+        while(par != nullptr){
+            par->renew_budget(curr_time);
+            par = par->parent;
+        }
     }
 
     bool is_active(double curr_time){
         if(is_task){
             int iter = (int)(curr_time/p);
-            return iter > last_iter;
+            bool a = iter > last_iter;
+            if(a && !last_active_state){
+                renew_parents(curr_time);
+            }
+            last_active_state=a;
+            return a;
         } else{
             bool a = false;
             for(auto x : children){
@@ -125,8 +147,11 @@ public:
 
 void print_vec(std::vector<Server*> x, double curr_time){
     printf("-------Jobs at %0.1f--------------\n", curr_time);
-    for(auto j : x){
-        printf("ID: %d\n", j->task_id);
+    /*for(auto j : x){
+        //printf("ID: %d, CPU: %d\n", j->task_id);
+    }*/
+    for(int i = 0; i < cpus.size(); i++){
+        printf("CPU %d: Task %d\n", i, cpus[i]);
     }
 }
 
@@ -199,6 +224,7 @@ std::vector<Job> parse_jobs()
     int np, na;
     double runtime;
     std::cin >> np >> na >> runtime;
+    max_runtime=runtime;
 
     // vector is not sorted meaningfully
     std::vector<Job> jobs;
@@ -241,6 +267,9 @@ public:
             auto flat = get_tasks(x->rootserver);
             tasks_flat.insert(tasks_flat.begin(), flat.begin(), flat.end());
         }
+        for(auto x: tasks_flat){
+            x->renew_parents(0);
+        }
     }
 
     std::vector<Server*> make_task_servers(std::vector<Job> jobs){
@@ -255,12 +284,53 @@ public:
     void run(double max_time){
         double curr_t = 0;
         while(curr_t < max_time){
+            for(auto x: tasks_flat){
+                x->is_active(curr_t);
+            }
             std::vector<Server*> jobs = schedule(curr_t);
-            print_vec(jobs, curr_t);
+
+            cpus = std::vector<int>(cpus.size(), -1);
+
             for(auto x : jobs){
                 x->make_progress(curr_t);
+
+                //asign cpus
+                if(x->last_cpu != -1){
+                    if(cpus[x->last_cpu] != -1){
+                        auto it = std::find(cpus.begin(), cpus.end(), -1);
+                        if(it == cpus.end()){
+                            printf("Error: All cpus full at time %0.2f\n", curr_t);
+                            return;
+                        }
+                        int idx = std::distance(std::begin(cpus), it);
+                        x->last_cpu = idx;
+                        cpus[idx] = x->task_id;
+                        migrations+=1;
+                    } else {
+                        cpus[x->last_cpu] = x->task_id;
+                    }
+                }  else {
+                    auto it = std::find(cpus.begin(), cpus.end(), -1);
+                    if(it == cpus.end()){
+                        printf("Error: All cpus full at time %0.2f\n", curr_t);
+                        return;
+                    }
+                    int idx = std::distance(std::begin(cpus), it);
+                    x->last_cpu = idx;
+                    cpus[idx] = x->task_id;
+                }
+
+            }
+
+            print_vec(jobs, curr_t);
+
+            for(auto x : tasks_flat){
+                if(x->last_exec_time == curr_t-1 && x->is_active(curr_t)){
+                    preemptions++;
+                }
             }
             curr_t++;
+
 
         }
 
@@ -269,6 +339,7 @@ public:
     std::vector<Server*> schedule(double curr_time){
         std::vector<Server*> j;
         for(auto x: subsystems){
+            x->update(curr_time);
             std::vector<Server*> sj = x->schedule(curr_time);
             j.insert(j.end(), sj.begin(), sj.end());
         }
@@ -396,7 +467,7 @@ std::vector<Server*> sel_jobs(Server* s, std::vector<Server*>& v, int exec, doub
             Server* mins;
             double min_d=9999999999;
             for(Server* x : s->children){
-                if(x->is_active(curr_time)){
+                if((x->budget>0) || (x->is_task && x->is_active(curr_time))){
                     double d = x->get_next_deadline();
                     if(d<min_d){
                         min_d = d;
@@ -426,9 +497,13 @@ std::vector<Server*> sel_jobs(Server* s, std::vector<Server*>& v, int exec, doub
 int main() {
     int num_cpus;
     std::cin >> num_cpus;
+    cpus = std::vector<int>(num_cpus, -1);
     std::vector<Job> jobs = parse_jobs();
     RUNScheduler run(num_cpus, jobs);
-    run.run(1000);
+    run.run(max_runtime);
+    printf("DONE!----------------\n");
+    printf("Total Preemptions: %d\n", preemptions);
+    printf("Total Migrations: %d\n", migrations);
 
 
 
